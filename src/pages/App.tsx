@@ -292,7 +292,7 @@ const App: React.FC = () => {
                 </>
               ) : null}
             </div>
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
               <button
                 onClick={handleClear}
                 className="w-full cursor-pointer rounded-xl border border-gray-400 px-6 py-2 font-medium text-gray-400 transition-colors duration-200 hover:bg-gray-400 hover:text-white"
