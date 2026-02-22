@@ -35,47 +35,73 @@ const MxSignalVisualization: React.FC<SignalVisualizationProps> = ({
   audioFrequency,
   power,
 }) => {
-  const { dataset } = useMemo(() => {
+  const chartRef = useRef<ChartJS<"line"> | null>(null);
+
+  // Parámetros del canal (igual lógica que 5G)
+  const alpha = 80; // Atenuación exponencial (ajustable)
+  const fadingFrequency = 20; // Fading lento para que se visualice
+
+  const { txData, rxData } = useMemo(() => {
     const fc = frequency;
     const fm = audioFrequency;
     const deltaF = frequencyDeviation;
-    const beta = deltaF / fm;
+
+    const beta = deltaF / fm; // Índice de modulación FM
+
     const sampleRate = 1e5;
     const visualWindow = 0.01; // 10 ms
+    const totalSamples = Math.floor(sampleRate * visualWindow);
 
     const amplitude = Math.sqrt(power || 1);
 
-    const totalSamples = Math.floor(sampleRate * visualWindow);
-
-    const data: { x: number; y: number }[] = [];
+    const tx: { x: number; y: number }[] = [];
+    const rx: { x: number; y: number }[] = [];
 
     for (let i = 0; i < totalSamples; i++) {
       const t = i / sampleRate;
 
+      // Señal FM pura
       const signal =
         amplitude *
         Math.cos(2 * Math.PI * fc * t + beta * Math.sin(2 * Math.PI * fm * t));
 
-      data.push({ x: t, y: signal });
+      // Atenuación exponencial
+      const attenuation = Math.exp(-alpha * t);
+
+      // Fading multiplicativo
+      const fading = 0.7 + 0.3 * Math.cos(2 * Math.PI * fadingFrequency * t);
+
+      const channelGain = attenuation * fading;
+
+      tx.push({ x: t, y: signal });
+      rx.push({ x: t, y: signal * channelGain });
     }
 
-    return { dataset: data };
+    return { txData: tx, rxData: rx };
   }, [frequency, frequencyDeviation, audioFrequency, power]);
 
-  const chartData = useMemo(() => {
-    return {
+  const chartData = useMemo(
+    () => ({
       datasets: [
         {
-          label: "Señal FM",
-          data: dataset,
-          borderWidth: 1.2,
+          label: "Señal FM Transmitida (TX)",
+          data: txData,
+          borderWidth: 1,
           pointRadius: 0,
-          borderColor: "#4682B4",
+          borderColor: "rgba(120,120,120,0.2)",
+          tension: 0,
+        },
+        {
+          label: "Señal FM Recibida (RX - Con pérdida)",
+          data: rxData,
+          borderWidth: 2,
+          pointRadius: 0,
           tension: 0,
         },
       ],
-    };
-  }, [dataset]);
+    }),
+    [txData, rxData],
+  );
 
   const options = useMemo<ChartOptions<"line">>(
     () => ({
@@ -84,9 +110,18 @@ const MxSignalVisualization: React.FC<SignalVisualizationProps> = ({
       animation: false,
       parsing: false,
       normalized: true,
+
       scales: {
         x: {
           type: "linear",
+          title: {
+            display: true,
+            text: "Tiempo (s)",
+            font: { weight: "bold" },
+          },
+          grid: {
+            color: "rgba(0,0,0,0.05)",
+          },
           ticks: {
             autoSkip: true,
             maxTicksLimit: 6,
@@ -97,12 +132,37 @@ const MxSignalVisualization: React.FC<SignalVisualizationProps> = ({
           },
         },
         y: {
+          title: {
+            display: true,
+            text: "Amplitud",
+            font: { weight: "bold" },
+          },
+          grid: {
+            color: "rgba(0,0,0,0.05)",
+          },
           ticks: {
-            callback: (value) => Number(value).toFixed(2),
+            callback: (value) => {
+              const num = Number(value);
+              return num === 0 ? "0" : num.toExponential(2);
+            },
           },
         },
       },
+
       plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          labels: {
+            usePointStyle: true,
+            boxWidth: 10,
+            font: {
+              size: 12,
+              weight: "bold",
+            },
+          },
+        },
+
         zoom: {
           limits: { x: { minRange: 1e-12 } },
           pan: { enabled: true, mode: "x" },
@@ -112,19 +172,22 @@ const MxSignalVisualization: React.FC<SignalVisualizationProps> = ({
             mode: "x",
           },
         },
+
         tooltip: {
+          mode: "index",
+          intersect: false,
+          backgroundColor: "rgba(0,0,0,0.85)",
+          titleFont: { weight: "bold" },
           callbacks: {
             label: (ctx) => {
-              // Comprobación de tipo robusta para evitar el error de "null"
               const y = ctx.parsed?.y;
-              const yStr = typeof y === "number" ? y.toFixed(4) : "0.0000";
-              return `Amplitud: ${yStr}`;
+              const yStr = typeof y === "number" ? y.toExponential(4) : "0";
+              return `${ctx.dataset.label}: ${yStr}`;
             },
             title: (items) => {
-              // Comprobación de tipo robusta para el eje X
               const x = items[0]?.parsed?.x;
               const xStr = typeof x === "number" ? x.toExponential(4) : "0";
-              return `Tiempo: ${xStr}s`;
+              return `Tiempo: ${xStr} s`;
             },
           },
         },
@@ -132,8 +195,6 @@ const MxSignalVisualization: React.FC<SignalVisualizationProps> = ({
     }),
     [],
   );
-
-  const chartRef = useRef<ChartJS<"line"> | null>(null);
 
   return <Line ref={chartRef} data={chartData} options={options} />;
 };
